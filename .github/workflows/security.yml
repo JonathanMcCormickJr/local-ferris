@@ -1,0 +1,74 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Daily at 06:00 UTC — catches advisories published against pinned
+    # versions even when the lockfile itself hasn't changed.
+    - cron: "0 6 * * *"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cargo-deny:
+    name: cargo-deny (licenses, bans, advisories, sources)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned Rust toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # cargo-deny lives in ~/.cargo/bin; cache it across runs.
+          cache-all-crates: true
+
+      - name: Install cargo-deny
+        run: |
+          if ! command -v cargo-deny >/dev/null; then
+            cargo install --locked cargo-deny
+          fi
+
+      - name: cargo deny check
+        run: cargo deny --all-features check
+
+  cargo-audit:
+    name: cargo-audit (RustSec advisory DB)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned Rust toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
+
+      - name: Install cargo-audit
+        run: |
+          if ! command -v cargo-audit >/dev/null; then
+            cargo install --locked cargo-audit
+          fi
+
+      # --deny warnings fails on unmaintained / yanked too, so any new
+      # issue breaks the build until it's either fixed or an explicit
+      # ignore is added (with a documented reason) in deny.toml AND the
+      # --ignore list below.
+      - name: cargo audit
+        run: >
+          cargo audit
+          --deny warnings
+          --ignore RUSTSEC-2025-0141
+          --ignore RUSTSEC-2025-0119

@@ -241,9 +241,9 @@ local-ferris/
 - [x] Pin Rust toolchain (`rust-toolchain.toml`, stable 1.95.0)
 - [x] `deny.toml` committed (license allowlist, advisory policy,
       source allowlist)
-- [ ] Wire `cargo-deny` + `cargo-audit` into CI
+- [x] Wire `cargo-deny` + `cargo-audit` into CI
 - [x] `#![forbid(unsafe_code)]` in every owned crate
-- [ ] Baseline CLI skeleton (`clap`, subcommands: `chat`, `complete`,
+- [x] Baseline CLI skeleton (`clap`, subcommands: `chat`, `complete`,
       `index`, `download`)
 
 ### Phase 1 — inference

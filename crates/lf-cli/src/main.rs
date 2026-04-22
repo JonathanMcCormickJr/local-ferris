@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
+mod cli;
+
 fn main() -> anyhow::Result<()> {
-    println!("local-ferris: scaffold only; see README for roadmap");
-    Ok(())
+    cli::run()
 }
