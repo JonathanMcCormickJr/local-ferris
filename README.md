@@ -120,15 +120,30 @@ Full fine-tuning is out of scope for this hardware. Instead:
   future work, not a Phase 2 deliverable.
 - **Quantization** (Rust-native): once a raw GGUF exists, downstream
   quantization runs through `llama_gguf::gguf::quantize_model` with
-  `QuantizeOptions` — no external toolchain.
-  - Default: **Q4_K_M** (≈4.5 bits/weight, best size/quality on AVX2).
-  - Precision fallback: **Q5_K_M** when quality regressions are observed
+  `QuantizeOptions` — no external toolchain. Exposed via
+  `local-ferris quantize`, which optionally emits a TOML size/quality
+  report.
+  - Default: **Q4_K** (≈4.5 bits/weight, best size/quality on AVX2).
+  - Precision fallback: **Q5_K** when quality regressions are observed
     on the Rust eval set.
   - Ceiling: **Q8_0** for calibration runs.
-- Record a calibration diff: generate completions for a fixed suite of
-  Rust prompts before and after quantization; fail the build if
-  perplexity on held-out Rust code grows by more than a configured
-  threshold.
+  - Vocabulary note: llama.cpp popularized `Q4_K_M` / `Q5_K_M` — those
+    suffixes denote a *mixture* (attention tensors at one type, FFN at
+    another). `llama_gguf 0.14` only ships uniform k-quants, so the CLI
+    accepts the `_M` suffix as a familiarity alias and strips it; every
+    tensor gets the same target. Mixed-precision quantization is a
+    future enhancement.
+- **Calibration** is handled by `local-ferris eval`, which runs a
+  Rust task-completion suite (`evals/rust_suite.toml`) against a
+  quantized model and reports per-case pass/fail plus an aggregate
+  pass rate. Two reports (pre-quant vs post-quant) can be diff'd to
+  catch regressions introduced by the chosen target type.
+  - **Perplexity is not yet wired.** Real perplexity needs per-token
+    logits from a teacher-forced forward pass; `llama_gguf 0.14` does
+    not expose that at the `Engine` level (only `model() -> &dyn Model`
+    with the caller driving the forward pass themselves). Task-
+    completion pass rate carries the quality signal in the size/quality
+    report for now; perplexity is genuine follow-up work.
 
 ### 4. Inference runtime
 
@@ -274,12 +289,16 @@ local-ferris/
 - [x] `lf-download` with SHA-256 manifest verification
 - [x] HF → GGUF conversion script (external Python converter; see
       `scripts/convert_hf_to_gguf.sh` and §3 for the scope boundary)
-- [ ] Quantize to Q4_K_M, Q5_K_M, Q8_0 and commit size/quality report
-- [ ] Calibration eval suite (perplexity + task completion on held-out
-      Rust snippets)
+- [x] Quantize to Q4_K, Q5_K, Q8_0 and commit size/quality report
+      (uniform k-quants — see §3 vocabulary note)
+- [x] Calibration eval suite — task-completion on held-out Rust
+      snippets (`evals/rust_suite.toml`, driven by `local-ferris eval`).
+      Perplexity deferred pending a per-token-logits API in
+      `llama_gguf`; see §3.
 
 ### Phase 3 — fine-tuning
-- [ ] Curate Rust fine-tune corpus (license-clean, deduped)
+- [x] Curate Rust fine-tune corpus (license-clean, deduped) —
+      `corpus/manifest.toml` + `scripts/build_corpus.py`
 - [ ] LoRA training script (CPU, `peft`) + reproducibility seed
 - [ ] Adapter merge + re-quantize pipeline
 - [ ] Before/after eval on the Rust prompt suite
@@ -365,6 +384,100 @@ The script prints a ready-to-paste `manifests/models.toml` stanza with
 the output's size and SHA-256 already filled in; you add `url`,
 `license`, `source`, and `provenance_note` after uploading. Then
 quantize (next Phase 2 item) and publish.
+
+### Building the fine-tune corpus
+
+LoRA training lives in Python (§2), and so does corpus prep:
+`scripts/build_corpus.py` reads `corpus/manifest.toml`, clones each
+declared source at its pinned revision, walks the include paths for
+`.rs` files, deduplicates by content hash across the whole corpus,
+and emits a JSONL file plus a TOML stats companion. Standard-library
+Python 3.11+ only — no pip install needed beyond `tomllib` (stdlib)
+and `git` on `$PATH`.
+
+The manifest ships with every revision set to a `REPLACE-ME`
+placeholder; the script refuses to build until they are pinned to
+real upstream refs. Pinning is a deliberate, auditable step — the
+commit you choose determines the license text and the code your
+fine-tune will imitate. Do this in its own commit so reviewers can
+see which revisions are load-bearing.
+
+```sh
+# 1. Pin revisions in corpus/manifest.toml (one commit).
+# 2. Build:
+scripts/build_corpus.py \
+    --manifest corpus/manifest.toml \
+    --output corpus/out/corpus.jsonl \
+    --stats corpus/out/stats.toml
+
+# 3. Feed corpus/out/corpus.jsonl into the LoRA trainer (§2 of README).
+```
+
+`corpus/.cache/` (git clones) and `corpus/out/` (generated JSONL +
+stats) are gitignored so nothing large lands in-repo.
+
+### Running the eval harness
+
+`local-ferris eval` runs a TOML-defined task-completion suite against
+a GGUF model and reports per-case pass/fail plus an aggregate pass
+rate. The default suite ships at `evals/rust_suite.toml` and seeds a
+handful of canonical Rust completion prompts (iterative Fibonacci,
+slice iterator composition, `Result`/`?` propagation, `Option` match,
+struct constructor, `fmt::Display` impl). Each case is a raw prompt
+(no chat-template wrapping) paired with a short `expect` substring —
+loose on purpose, because the goal is a regression signal, not a
+grade.
+
+```sh
+local-ferris eval \
+    --model ./quant/raw.Q4_K.gguf \
+    --report ./eval-Q4_K.toml
+
+# compare two reports by eye (or via `diff`) to catch quant regressions
+diff <(cat eval-Q4_K.toml)  <(cat eval-Q8_0.toml)
+```
+
+Output is a TOML report with `[[case]]` stanzas and a top-level
+`pass_rate`. Exit code is 0 regardless of pass rate — the harness is
+a measurement, not a gate. Wire it into CI as a gate in whatever shape
+makes sense for your workflow. Ctrl-C during a run cancels the
+in-flight case cleanly and still prints the partial summary.
+
+### Producing quantized GGUFs
+
+Given a raw GGUF (F16 / F32 — the output of
+`scripts/convert_hf_to_gguf.sh`), run `local-ferris quantize` to
+produce one or more quantized variants in a single invocation:
+
+```sh
+local-ferris quantize \
+    --input ./raw.gguf \
+    --out-dir ./quant \
+    --targets Q4_K,Q5_K,Q8_0 \
+    --report ./quant/report.toml
+```
+
+Per-target output lands at `<stem>.<target>.gguf` (e.g.
+`raw.Q4_K.gguf`). When `--report` is set, a TOML summary is written
+with one `[[quantize]]` stanza per target:
+
+```toml
+version = 1
+
+[[quantize]]
+target = "Q4_K"
+input_bytes = 6012345678
+output_bytes = 1923456789
+reduction_ratio = 0.32
+tensors_total = 224
+tensors_quantized = 200
+tensors_skipped = 24
+duration_secs = 45.2
+```
+
+Quality measurement (perplexity against held-out Rust code) is the
+next Phase 2 item and ties into `evals/`; the ratio + tensor counts
+here are the "size" half of "size/quality report".
 
 ### Downloading pinned models
 

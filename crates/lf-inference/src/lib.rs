@@ -14,6 +14,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub mod prompt;
+pub mod quantize;
 
 pub use llama_gguf::engine::EngineConfig;
 pub use prompt::{Message, PromptTemplate, Role};

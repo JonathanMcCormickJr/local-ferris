@@ -11,3 +11,7 @@ llama-gguf = { workspace = true, features = ["cpu"] }
 anyhow.workspace = true
 thiserror.workspace = true
 rayon.workspace = true
+serde = { workspace = true, features = ["derive"] }
+
+[dev-dependencies]
+toml.workspace = true

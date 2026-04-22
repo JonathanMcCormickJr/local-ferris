@@ -35,6 +35,10 @@ pub enum Command {
     Download(DownloadArgs),
     /// Measure tokens-per-second across one or more GGUF files.
     Bench(BenchArgs),
+    /// Quantize a GGUF model to one or more target precision levels.
+    Quantize(QuantizeArgs),
+    /// Run a task-completion eval suite against a GGUF model.
+    Eval(EvalArgs),
 }
 
 #[derive(clap::Args, Debug)]
@@ -164,6 +168,71 @@ pub struct BenchArgs {
 }
 
 #[derive(clap::Args, Debug)]
+pub struct QuantizeArgs {
+    /// Raw GGUF to quantize (typically F16 or F32 output from
+    /// `scripts/convert_hf_to_gguf.sh`).
+    #[arg(long, value_name = "PATH")]
+    pub input: PathBuf,
+
+    /// Directory to write quantized outputs into.
+    #[arg(long, value_name = "DIR", default_value = ".")]
+    pub out_dir: PathBuf,
+
+    /// Target quantization levels (comma-separated). Accepts
+    /// llama.cpp-style `_M` suffixes; they are normalized to the
+    /// uniform k-quant `llama_gguf` actually applies. See README §3.
+    #[arg(
+        long,
+        value_name = "LEVELS",
+        default_value = "Q4_K,Q5_K,Q8_0",
+        value_delimiter = ','
+    )]
+    pub targets: Vec<String>,
+
+    /// Threads for quantization. 0 = let llama_gguf choose.
+    #[arg(long, default_value_t = 0, value_name = "N")]
+    pub threads: usize,
+
+    /// Optional TOML report path. When set, writes a per-target summary
+    /// of sizes and tensor counts alongside the quantized artifacts.
+    #[arg(long, value_name = "PATH")]
+    pub report: Option<PathBuf>,
+}
+
+#[derive(clap::Args, Debug)]
+pub struct EvalArgs {
+    /// GGUF model to evaluate.
+    #[arg(long, value_name = "PATH")]
+    pub model: String,
+
+    /// Eval suite (TOML) to run. Ships with `evals/rust_suite.toml`.
+    #[arg(long, value_name = "PATH", default_value = "evals/rust_suite.toml")]
+    pub suite: PathBuf,
+
+    /// Write a TOML report to this path.
+    #[arg(long, value_name = "PATH")]
+    pub report: Option<PathBuf>,
+
+    /// Inference threads (sets rayon's global pool).
+    #[arg(long, value_name = "N")]
+    pub threads: Option<usize>,
+
+    /// Context window in tokens.
+    #[arg(
+        long,
+        default_value_t = 2048,
+        value_name = "N",
+        value_parser = clap::value_parser!(u32).range(1..=8192),
+    )]
+    pub ctx: u32,
+
+    /// Sampling temperature. Defaults to 0.0 for reproducibility across
+    /// runs; raise to introduce variability.
+    #[arg(long, default_value_t = 0.0)]
+    pub temperature: f32,
+}
+
+#[derive(clap::Args, Debug)]
 pub struct DownloadArgs {
     /// Manifest entry or alias to download (e.g. `starcoder2-3b.Q4_K_M`).
     #[arg(value_name = "ALIAS")]
@@ -186,6 +255,8 @@ pub fn run() -> Result<()> {
         Command::Index(_) => not_implemented("index"),
         Command::Download(args) => crate::download::run(args),
         Command::Bench(args) => crate::bench::run(args),
+        Command::Quantize(args) => crate::quantize::run(args),
+        Command::Eval(args) => crate::eval::run(args),
     }
 }
 

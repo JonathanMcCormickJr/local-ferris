@@ -12,3 +12,6 @@
 *.bin
 
 /test-fixtures/
+
+/corpus/.cache/
+/corpus/out/

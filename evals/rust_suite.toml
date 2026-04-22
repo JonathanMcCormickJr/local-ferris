@@ -1,0 +1,86 @@
+# local-ferris eval suite — Rust task-completion cases.
+#
+# Each case is a raw completion prompt (no chat-template wrapping). A
+# competent Rust-trained model should produce output containing the
+# given `expect` substring. The checks are deliberately loose — we want
+# a regression signal ("this quant broke the model"), not a grade.
+#
+# Schema:
+#   name          short identifier used in reports.
+#   prompt        raw text fed verbatim to the model.
+#   expect        substring that should appear in the generated output.
+#   max_tokens    optional, defaults to 128.
+#
+# Add cases freely. If you find the suite is too easy / too hard for
+# your candidate models, tune `expect` to a shorter, more-generic
+# substring rather than tightening it.
+
+version = 1
+
+[[case]]
+name = "fib-iter"
+prompt = """
+// Returns the n-th Fibonacci number iteratively.
+fn fib(n: u32) -> u64 {
+"""
+expect = "let mut"
+max_tokens = 160
+
+[[case]]
+name = "slice-sum-of-squares"
+prompt = """
+// Sum of the squares of all elements in a slice, using iter().
+fn sum_of_squares(xs: &[i32]) -> i32 {
+    xs.iter()."""
+expect = "sum"
+max_tokens = 64
+
+[[case]]
+name = "result-question-mark"
+prompt = """
+use std::fs;
+use std::io;
+
+// Reads `path` and returns its byte length, propagating I/O errors with `?`.
+fn byte_length(path: &str) -> io::Result<u64> {
+    let data = fs::read(path)"""
+expect = "?"
+max_tokens = 96
+
+[[case]]
+name = "option-match"
+prompt = """
+// Returns the first element of the slice doubled, or 0 when empty.
+fn first_doubled(xs: &[i32]) -> i32 {
+    match xs.first() {
+"""
+expect = "None"
+max_tokens = 96
+
+[[case]]
+name = "struct-new"
+prompt = """
+/// A 2D point with an associated `new` constructor.
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+impl Point {
+    fn new(x: f64, y: f64) -> Self {
+"""
+expect = "Self"
+max_tokens = 64
+
+[[case]]
+name = "trait-display"
+prompt = """
+use std::fmt;
+
+struct Celsius(f64);
+
+impl fmt::Display for Celsius {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+"""
+expect = "write!"
+max_tokens = 96

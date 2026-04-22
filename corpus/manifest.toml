@@ -1,0 +1,86 @@
+# local-ferris fine-tune corpus manifest
+#
+# Declares the Rust sources that `scripts/build_corpus.py` assembles into
+# a JSONL training corpus. Every source must be permissively licensed
+# (MIT / Apache-2.0 / Unlicense — anything on `deny.toml`'s allowlist)
+# and revision-pinned to a real tag or commit SHA.
+#
+# Schema (per `[[source]]`):
+#
+#   name       short identifier, used in JSONL records and logs.
+#   repo       git clone URL.
+#   revision   tag name or commit SHA. REPLACE-ME placeholders are
+#              rejected by the build script — pin to a real upstream
+#              ref you have reviewed before generating a corpus.
+#   license    SPDX expression. Reviewed by humans; not enforced here.
+#   include    list of directories (relative to the repo root).
+#              Files under these directories matching `*.rs` are
+#              eligible. Content-hash deduplication applies across the
+#              whole corpus.
+#
+# Provenance rule: every source is from organizations outside the
+# jurisdiction of the PRC, consistent with the trusted-jurisdiction
+# sourcing goal in §Goals of the README.
+#
+# Revisions ship as REPLACE-ME placeholders. Pinning them is a
+# deliberate, auditable step — the commit you choose determines the
+# license text and the code your fine-tune will imitate. Do this in a
+# separate commit so reviewers can see which revisions are load-bearing.
+
+version = 1
+
+[[source]]
+name = "tokio"
+repo = "https://github.com/tokio-rs/tokio"
+revision = "REPLACE-ME (upstream tag like tokio-1.40.0)"
+license = "MIT"
+include = ["tokio/src"]
+
+[[source]]
+name = "serde"
+repo = "https://github.com/serde-rs/serde"
+revision = "REPLACE-ME (upstream tag like v1.0.210)"
+license = "MIT OR Apache-2.0"
+include = ["serde/src", "serde_derive/src"]
+
+[[source]]
+name = "clap"
+repo = "https://github.com/clap-rs/clap"
+revision = "REPLACE-ME (upstream tag like v4.5.x)"
+license = "MIT OR Apache-2.0"
+include = ["clap_builder/src", "clap_derive/src"]
+
+[[source]]
+name = "reqwest"
+repo = "https://github.com/seanmonstar/reqwest"
+revision = "REPLACE-ME (upstream tag like v0.12.x)"
+license = "MIT OR Apache-2.0"
+include = ["src"]
+
+[[source]]
+name = "axum"
+repo = "https://github.com/tokio-rs/axum"
+revision = "REPLACE-ME (upstream tag like axum-v0.8.x)"
+license = "MIT"
+include = ["axum/src"]
+
+[[source]]
+name = "ripgrep"
+repo = "https://github.com/BurntSushi/ripgrep"
+revision = "REPLACE-ME (upstream tag like 14.x.x)"
+license = "MIT OR Unlicense"
+include = ["crates/core", "crates/regex/src", "crates/ignore/src"]
+
+[[source]]
+name = "tracing"
+repo = "https://github.com/tokio-rs/tracing"
+revision = "REPLACE-ME (upstream tag like tracing-0.1.x)"
+license = "MIT"
+include = ["tracing/src", "tracing-core/src"]
+
+[[source]]
+name = "anyhow"
+repo = "https://github.com/dtolnay/anyhow"
+revision = "REPLACE-ME (upstream tag like 1.0.x)"
+license = "MIT OR Apache-2.0"
+include = ["src"]
