@@ -109,9 +109,18 @@ Full fine-tuning is out of scope for this hardware. Instead:
 
 ### 3. Quantization (≤ 8-bit, typically 4-bit)
 
-- Convert merged weights to GGUF and quantize using Rust-native tooling
-  built on `llama_gguf` (the same crate that powers inference). No
-  `llama.cpp` toolchain is required anywhere in the pipeline.
+- **HF → raw GGUF** (external, Python-based): `llama_gguf` does not
+  ingest safetensors, so this leg of the pipeline leans on an existing
+  converter — canonically `llama.cpp/convert_hf_to_gguf.py` (pure
+  Python; does **not** require the llama.cpp C/C++ engine to be built).
+  A wrapper lives at `scripts/convert_hf_to_gguf.sh`; it also stamps a
+  ready-to-paste `manifests/models.toml` stanza with the freshly
+  computed SHA-256. A pure-Rust converter (safetensors parse + per-
+  architecture tensor-name mapping + tokenizer export) is genuine
+  future work, not a Phase 2 deliverable.
+- **Quantization** (Rust-native): once a raw GGUF exists, downstream
+  quantization runs through `llama_gguf::gguf::quantize_model` with
+  `QuantizeOptions` — no external toolchain.
   - Default: **Q4_K_M** (≈4.5 bits/weight, best size/quality on AVX2).
   - Precision fallback: **Q5_K_M** when quality regressions are observed
     on the Rust eval set.
@@ -135,10 +144,16 @@ Full fine-tuning is out of scope for this hardware. Instead:
   `distributed`, and `hailo` features are **never** enabled — they
   would either introduce network listeners, GPU assumptions, or
   remote-inference clients that contradict §6.
-- Threading: expose `n_threads` (default = physical cores, here 4) and
-  `n_batch` through config.
-- Context: default 4096 tokens, configurable up to 8192. Use
-  sliding-window trimming rather than growing context indefinitely.
+- Threading: `llama_gguf`'s CPU backend dispatches all parallelism
+  through rayon. We expose `--threads N` on the inference subcommands;
+  it calls `rayon::ThreadPoolBuilder::build_global` before any `Engine`
+  is constructed. Default is rayon's default (physical cores — 4 on the
+  reference machine). A `BatchedEngine` with an explicit `n_batch` knob
+  exists upstream but targets multi-stream server workloads; it is not
+  wired in here because this is single-prompt interactive inference.
+- Context: default 4096 tokens, configurable up to 8192 via `--ctx N`,
+  plumbed through `EngineConfig::max_context_len`. Use sliding-window
+  trimming rather than growing context indefinitely.
 - Sampling: temperature 0.2 for code completion, 0.7 for chat;
   repetition penalty 1.1; top-p 0.95.
 - Expected throughput on the reference machine: ~3–5 tok/s at Q4_K_M
@@ -247,16 +262,18 @@ local-ferris/
       `index`, `download`)
 
 ### Phase 1 — inference
-- [ ] Add `llama_gguf` dependency and a smoke test against a stock
+- [x] Add `llama_gguf` dependency and a smoke test against a stock
       GGUF model
-- [ ] Streaming token output with cancel-on-Ctrl-C
-- [ ] Configurable threads / batch / context
-- [ ] Prompt template with system / user / tool roles
-- [ ] Benchmark harness reporting tok/s for each quant level
+- [x] Streaming token output with cancel-on-Ctrl-C
+- [x] Configurable threads and context (batch is a `BatchedEngine`
+      concern upstream; out of scope for single-stream inference — see §4)
+- [x] Prompt template with system / user / tool roles
+- [x] Benchmark harness reporting tok/s for each quant level
 
 ### Phase 2 — model pipeline
-- [ ] `lf-download` with SHA-256 manifest verification
-- [ ] HF → GGUF conversion script
+- [x] `lf-download` with SHA-256 manifest verification
+- [x] HF → GGUF conversion script (external Python converter; see
+      `scripts/convert_hf_to_gguf.sh` and §3 for the scope boundary)
 - [ ] Quantize to Q4_K_M, Q5_K_M, Q8_0 and commit size/quality report
 - [ ] Calibration eval suite (perplexity + task completion on held-out
       Rust snippets)
@@ -297,6 +314,107 @@ local-ferris/
 - [ ] Session transcripts with source citations
 - [ ] Config file (`~/.config/local-ferris/config.toml`) with sane
       defaults for the reference hardware
+
+## Development
+
+### Running the smoke test
+
+`crates/lf-inference/tests/smoke.rs` holds two integration tests:
+
+- `default_backend_initializes` runs on every `cargo test` invocation.
+  It proves that `llama_gguf` is actually linked into the build, with no
+  model file required.
+- `opens_a_stock_gguf_model` is marked `#[ignore]` so it does **not**
+  run in default `cargo test` (or in CI). It opens a real GGUF file via
+  `llama_gguf::GgufFile::open` and asserts the header parses.
+
+To exercise the ignored test locally, grab a small non-PRC-origin GGUF
+(TinyLlama-1.1B-Chat-v1.0 Q4_K_M at ~637 MiB works well — Apache-2.0,
+originated at Singapore University of Technology and Design) and point
+the test at it via the `LF_SMOKE_MODEL` environment variable:
+
+```sh
+LF_SMOKE_MODEL=/path/to/TinyLlama-1.1B-Chat-v1.0-Q4_K_M.gguf \
+    cargo test -p lf-inference --test smoke -- --ignored
+```
+
+Alternatively, drop the file at `test-fixtures/smoke.gguf` in the repo
+root; the test resolves that path as a fallback. The `test-fixtures/`
+directory is gitignored, so committing large weights is not a risk.
+
+### Converting a new HF model
+
+HF safetensors → GGUF is the one step in the pipeline that is **not**
+Rust-native today (see §3). `scripts/convert_hf_to_gguf.sh` wraps an
+external Python converter; the canonical one is
+`llama.cpp/convert_hf_to_gguf.py` (pure Python — clone the llama.cpp
+repo, you do not need to build its C/C++ engine).
+
+```sh
+# one-time setup: clone the Python converter
+git clone --depth 1 https://github.com/ggerganov/llama.cpp ~/src/llama.cpp
+
+# convert an HF snapshot (local dir or previously `huggingface-cli snapshot-download`ed)
+CONVERTER=~/src/llama.cpp/convert_hf_to_gguf.py \
+    scripts/convert_hf_to_gguf.sh \
+    ~/hf-cache/bigcode/starcoder2-3b \
+    ./starcoder2-3b.gguf
+```
+
+The script prints a ready-to-paste `manifests/models.toml` stanza with
+the output's size and SHA-256 already filled in; you add `url`,
+`license`, `source`, and `provenance_note` after uploading. Then
+quantize (next Phase 2 item) and publish.
+
+### Downloading pinned models
+
+Network access is confined to the `download` subcommand; the rest of the
+workspace builds and runs offline. `manifests/models.toml` maps each
+artifact alias to a URL, a SHA-256 pin, and optional metadata
+(`size_bytes`, `license`, `source`, `provenance_note`). The file ships
+empty — populate entries only after verifying a real download against
+its hash (`sha256sum path/to/file.gguf`). The point of the manifest is
+trust, so placeholder hashes are not acceptable in commits.
+
+```sh
+# fetch and verify
+local-ferris download starcoder2-3b.Q4_K_M
+
+# re-verify an already-cached file without refetching
+local-ferris download starcoder2-3b.Q4_K_M --verify-only
+
+# use a different manifest
+local-ferris download foo --manifest ./alt-manifest.toml
+```
+
+Artifacts land in the per-user cache directory
+(`$XDG_CACHE_HOME/local-ferris/models` on Linux,
+`~/Library/Caches/local-ferris/models` on macOS). Downloads stream into
+`<name>.part` while a SHA-256 is computed on the fly; the file is
+atomically renamed into place only after the hash matches. A partial
+file that fails verification is discarded automatically.
+
+### Benchmarking quantizations
+
+The `local-ferris bench` subcommand measures tokens/second across one
+or more GGUF files. Typical use is to point it at sibling quantizations
+of the same base model to compare the size/speed trade:
+
+```sh
+local-ferris bench \
+    ~/models/starcoder2-3b.Q4_K_M.gguf \
+    ~/models/starcoder2-3b.Q5_K_M.gguf \
+    ~/models/starcoder2-3b.Q8_0.gguf \
+    --max-tokens 128 --threads 4
+```
+
+Output is a plain table with `label | run | load_ms | tokens |
+elapsed_ms | tok/s`. Labels are derived from filename stems. Runs
+default to 1; pass `--runs N` for multiple rows per model. Ctrl-C
+during a run aborts cleanly and prints the partial table. The
+methodology is deliberately simple — no warmup window, no statistical
+aggregation — so these numbers spot order-of-magnitude regressions
+rather than claim rigor.
 
 ## Non-goals
 

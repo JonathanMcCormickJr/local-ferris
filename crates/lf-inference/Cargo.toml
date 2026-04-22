@@ -10,3 +10,4 @@ license.workspace = true
 llama-gguf = { workspace = true, features = ["cpu"] }
 anyhow.workspace = true
 thiserror.workspace = true
+rayon.workspace = true

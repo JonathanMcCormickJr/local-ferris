@@ -1,0 +1,32 @@
+# local-ferris download manifest
+#
+# This file maps alias → pinned artifact. Every entry requires a URL and
+# a SHA-256 hash; `local-ferris download <alias>` will refuse to treat a
+# download as successful until its bytes hash to this value.
+#
+# Schema (per-entry, keyed under `[models."<alias>"]`):
+#
+#   url              string, required.   Fully qualified HTTPS URL.
+#   sha256           string, required.   64 lowercase hex chars.
+#   size_bytes       integer, optional.  Expected content-length, bytes.
+#   license          string, optional.   SPDX identifier or short license name.
+#   source           string, optional.   Organization / repo of origin.
+#   provenance_note  string, optional.   Human-readable note. Use this to
+#                                        record why the artifact satisfies the
+#                                        "trusted-jurisdiction" sourcing rule
+#                                        (README §Goals).
+#
+# Intentionally shipped empty: all entries must be verified against a real,
+# freshly-hashed artifact before landing here. Do not commit placeholder
+# SHA-256 values or copied-from-upstream hashes that have not been locally
+# verified — the whole point of this manifest is trust.
+#
+# Example entry (commented out; copy, verify a real download, and uncomment):
+#
+#   [models."starcoder2-3b.Q4_K_M"]
+#   url = "https://huggingface.co/<uploader>/starcoder2-3b-GGUF/resolve/main/starcoder2-3b.Q4_K_M.gguf"
+#   sha256 = "<run: sha256sum starcoder2-3b.Q4_K_M.gguf>"
+#   size_bytes = 1_900_000_000
+#   license = "OpenRAIL-M"
+#   source = "BigCode / ServiceNow + Hugging Face"
+#   provenance_note = "Non-PRC origin; BigCode collaboration (France/US/Canada)."

@@ -10,3 +10,5 @@
 *.onnx
 *.safetensors
 *.bin
+
+/test-fixtures/

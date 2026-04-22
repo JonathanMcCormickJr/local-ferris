@@ -7,6 +7,11 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-llama-gguf = { workspace = true, features = ["huggingface"] }
 anyhow.workspace = true
 thiserror.workspace = true
+serde = { workspace = true, features = ["derive"] }
+reqwest.workspace = true
+sha2.workspace = true
+hex.workspace = true
+toml.workspace = true
+directories.workspace = true

@@ -13,3 +13,6 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+ctrlc.workspace = true
+lf-inference = { path = "../lf-inference", version = "0.1.0" }
+lf-download = { path = "../lf-download", version = "0.1.0" }
