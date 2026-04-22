@@ -1,0 +1,12 @@
+/target
+**/*.rs.bk
+*.pdb
+
+/models/
+/indexes/
+/.local-ferris/
+
+*.gguf
+*.onnx
+*.safetensors
+*.bin

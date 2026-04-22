@@ -1,0 +1,12 @@
+[package]
+name = "lf-inference"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+llama-gguf = { workspace = true, features = ["cpu"] }
+anyhow.workspace = true
+thiserror.workspace = true
